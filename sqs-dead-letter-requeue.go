@@ -1,11 +1,12 @@
 package main
 
 import (
+	"log"
+	"os"
+
 	"github.com/goamz/goamz/aws"
 	"github.com/goamz/goamz/sqs"
 	"gopkg.in/alecthomas/kingpin.v1"
-	"log"
-	"os"
 )
 
 var (
