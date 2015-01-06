@@ -1,11 +1,12 @@
 package main
 
 import (
+	"log"
+	"os"
+
 	"github.com/goamz/goamz/aws"
 	"github.com/goamz/goamz/sqs"
 	"gopkg.in/alecthomas/kingpin.v1"
-	"log"
-	"os"
 )
 
 var (
@@ -38,14 +39,14 @@ func main() {
 
 	deadLetterQueue, err := conn.GetQueue(deadLetterQueueName)
 	if err != nil {
-		log.Fatalf(err.Error())
-		os.Exit(1)
+		log.Fatal(err)
+		return
 	}
 
 	activeQueue, err := conn.GetQueue(activeQueueName)
 	if err != nil {
-		log.Fatalf(err.Error())
-		os.Exit(1)
+		log.Fatal(err)
+		return
 	}
 
 	log.Printf("Looking for messages to requeue.")
@@ -56,29 +57,29 @@ func main() {
 				"MaxNumberOfMessages": "10",
 				"VisibilityTimeout":   "20"})
 		if err != nil {
-			log.Fatalf(err.Error())
-			os.Exit(1)
+			log.Fatal(err)
+			return
 		}
 
 		messages := resp.Messages
 		numberOfMessages := len(messages)
 		if numberOfMessages == 0 {
 			log.Printf("Requeuing messages done.")
-			os.Exit(0)
+			return
 		} else {
 			log.Printf("Moving %v message(s)...", numberOfMessages)
 		}
 
 		_, err = activeQueue.SendMessageBatch(messages)
 		if err != nil {
-			log.Fatalf(err.Error())
-			os.Exit(1)
+			log.Fatal(err)
+			return
 		}
 
 		_, err = deadLetterQueue.DeleteMessageBatch(messages)
 		if err != nil {
-			log.Fatalf(err.Error())
-			os.Exit(1)
+			log.Fatal(err)
+			return
 		}
 	}
 }
