@@ -3,13 +3,22 @@ package main
 import (
 	"github.com/goamz/goamz/aws"
 	"github.com/goamz/goamz/sqs"
+	"gopkg.in/alecthomas/kingpin.v1"
 	"log"
 	"os"
 )
 
+var (
+	app       = kingpin.New("dead-letter-requeue", "Requeues messages from a SQS dead-letter queue to the active one.")
+	queueName = app.Arg("queue-name", "Name of the SQS queue (e.g. prod-mgmt-website-data-www100-jimdo-com).").Required().String()
+)
+
 func main() {
-	var queueName = "dev-mgmt-website-data-cms-jimdo-dev"
-	var deadLetterQueueName = queueName + "_dead_letter"
+	kingpin.MustParse(app.Parse(os.Args[1:]))
+
+	activeQueueName := *queueName
+
+	var deadLetterQueueName = activeQueueName + "_dead_letter"
 
 	var auth = aws.Auth{
 		AccessKey: os.Getenv("AWS_ACCESS_KEY_ID"),
@@ -24,7 +33,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	activeQueue, err := conn.GetQueue(queueName)
+	activeQueue, err := conn.GetQueue(activeQueueName)
 	if err != nil {
 		log.Fatalf(err.Error())
 		os.Exit(1)
@@ -45,7 +54,7 @@ func main() {
 		messages := resp.Messages
 		numberOfMessages := len(messages)
 		if numberOfMessages == 0 {
-			log.Printf("Requeing messages done.")
+			log.Printf("Requeuing messages done.")
 			os.Exit(0)
 		} else {
 			log.Printf("Moving %v message(s)...", numberOfMessages)
