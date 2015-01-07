@@ -15,24 +15,16 @@ var (
 )
 
 func main() {
-	var awsAccessKey = os.Getenv("AWS_ACCESS_KEY_ID")
-	if len(awsAccessKey) == 0 {
-		log.Fatalf("Please set environment variable AWS_ACCESS_KEY_ID")
-	}
-	var awsSecretKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
-	if len(awsSecretKey) == 0 {
-		log.Fatalf("Please set environment variable AWS_SECRET_ACCESS_KEY")
-	}
-
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
 	activeQueueName := *queueName
 
 	var deadLetterQueueName = activeQueueName + "_dead_letter"
 
-	var auth = aws.Auth{
-		AccessKey: awsAccessKey,
-		SecretKey: awsSecretKey,
+	auth, err := aws.EnvAuth()
+	if err != nil {
+		log.Fatal(err)
+		return
 	}
 
 	conn := sqs.New(auth, aws.EUWest)
