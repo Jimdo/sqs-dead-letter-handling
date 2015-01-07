@@ -12,7 +12,7 @@ Binaries for handling SQS Dead Letter Queues:
 
 ### sqs-dead-letter-requeue
 ```sh
-go build sqs-dead-letter-requeue.go
+go build -o bin/sqs-dead-letter-requeue sqs-dead-letter-requeue/main.go
 ```
 
 ## Running it
@@ -26,5 +26,5 @@ export AWS_SECRET_ACCESS_KEY=<my-secret-key>
 
 ### sqs-dead-letter-requeue
 ```sh
-./dead_letter_requeue prod-mgmt-website-data-www101-jimdo-com
+bin/sqs-dead-letter-requeue prod-mgmt-website-data-www101-jimdo-com
 ```
