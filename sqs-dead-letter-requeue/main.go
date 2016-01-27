@@ -1,4 +1,4 @@
-package main
+package main // import "github.com/Jimdo/sqs-dead-letter-requeue"
 
 import (
 	"log"
