@@ -10,16 +10,22 @@ import (
 )
 
 var (
-	app       = kingpin.New("dead-letter-requeue", "Requeues messages from a SQS dead-letter queue to the active one.")
-	queueName = app.Arg("queue-name", "Name of the SQS queue (e.g. prod-mgmt-website-data-www100-jimdo-com).").Required().String()
+	app           = kingpin.New("dead-letter-requeue", "Requeues messages from a SQS dead-letter queue to the active one.")
+	queueName     = app.Arg("destination-queue-name", "Name of the destination SQS queue (e.g. prod-mgmt-website-data-www100-jimdo-com).").Required().String()
+	fromQueueName = app.Arg("source-queue-name", "Name of the source SQS queue (e.g. prod-mgmt-website-data-www100-jimdo-com-dead-letter).").String()
 )
 
 func main() {
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
-	activeQueueName := *queueName
+	destinationQueueName := *queueName
+	var sourceQueueName string
 
-	var deadLetterQueueName = activeQueueName + "_dead_letter"
+	if fromQueueName != nil {
+		sourceQueueName = *fromQueueName
+	} else {
+		sourceQueueName = destinationQueueName + "_dead_letter"
+	}
 
 	auth, err := aws.EnvAuth()
 	if err != nil {
@@ -29,13 +35,13 @@ func main() {
 
 	conn := sqs.New(auth, aws.EUWest)
 
-	deadLetterQueue, err := conn.GetQueue(deadLetterQueueName)
+	sourceQueue, err := conn.GetQueue(sourceQueueName)
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
 
-	activeQueue, err := conn.GetQueue(activeQueueName)
+	destinationQueue, err := conn.GetQueue(destinationQueueName)
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -43,7 +49,7 @@ func main() {
 
 	log.Printf("Looking for messages to requeue.")
 	for {
-		resp, err := deadLetterQueue.ReceiveMessageWithParameters(
+		resp, err := sourceQueue.ReceiveMessageWithParameters(
 			map[string]string{
 				"WaitTimeSeconds":     "20",
 				"MaxNumberOfMessages": "10",
@@ -58,17 +64,17 @@ func main() {
 		if numberOfMessages == 0 {
 			log.Printf("Requeuing messages done.")
 			return
-		} else {
-			log.Printf("Moving %v message(s)...", numberOfMessages)
 		}
 
-		_, err = activeQueue.SendMessageBatch(messages)
+		log.Printf("Moving %v message(s)...", numberOfMessages)
+
+		_, err = destinationQueue.SendMessageBatch(messages)
 		if err != nil {
 			log.Fatal(err)
 			return
 		}
 
-		_, err = deadLetterQueue.DeleteMessageBatch(messages)
+		_, err = sourceQueue.DeleteMessageBatch(messages)
 		if err != nil {
 			log.Fatal(err)
 			return
