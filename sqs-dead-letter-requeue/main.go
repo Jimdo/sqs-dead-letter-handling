@@ -3,17 +3,31 @@ package main // import "github.com/Jimdo/sqs-dead-letter-requeue"
 import (
 	"log"
 	"os"
+	"strconv"
 
-	"github.com/goamz/goamz/aws"
-	"github.com/goamz/goamz/sqs"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/sqs"
 	"gopkg.in/alecthomas/kingpin.v1"
 )
 
 var (
 	app           = kingpin.New("dead-letter-requeue", "Requeues messages from a SQS dead-letter queue to the active one.")
 	queueName     = app.Arg("destination-queue-name", "Name of the destination SQS queue (e.g. prod-mgmt-website-data-www100-jimdo-com).").Required().String()
-	fromQueueName = app.Arg("source-queue-name", "Name of the source SQS queue (e.g. prod-mgmt-website-data-www100-jimdo-com-dead-letter).").String()
+	fromQueueName = app.Flag("source-queue-name", "Name of the source SQS queue (e.g. prod-mgmt-website-data-www100-jimdo-com-dead-letter).").String()
+	accountID     = app.Flag("account-id", "AWS account ID. (e.g. 123456789)").String()
 )
+
+func getQueueUrlnput(queueName *string, accountID *string) *sqs.GetQueueUrlInput {
+	var getQueueURLInput sqs.GetQueueUrlInput
+
+	if *accountID != "" {
+		getQueueURLInput = sqs.GetQueueUrlInput{QueueName: queueName, QueueOwnerAWSAccountId: accountID}
+	} else {
+		getQueueURLInput = sqs.GetQueueUrlInput{QueueName: queueName}
+	}
+
+	return &getQueueURLInput
+}
 
 func main() {
 	kingpin.MustParse(app.Parse(os.Args[1:]))
@@ -21,27 +35,27 @@ func main() {
 	destinationQueueName := *queueName
 	var sourceQueueName string
 
-	if fromQueueName != nil {
+	if *fromQueueName != "" {
 		sourceQueueName = *fromQueueName
 	} else {
 		sourceQueueName = destinationQueueName + "_dead_letter"
 	}
 
-	auth, err := aws.EnvAuth()
+	sess, err := session.NewSession()
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
 
-	conn := sqs.New(auth, aws.EUWest)
+	conn := sqs.New(sess)
 
-	sourceQueue, err := conn.GetQueue(sourceQueueName)
+	sourceQueueURL, err := conn.GetQueueUrl(getQueueUrlnput(&sourceQueueName, accountID))
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
 
-	destinationQueue, err := conn.GetQueue(destinationQueueName)
+	destinationQueueURL, err := conn.GetQueueUrl(getQueueUrlnput(&destinationQueueName, accountID))
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -49,11 +63,16 @@ func main() {
 
 	log.Printf("Looking for messages to requeue.")
 	for {
-		resp, err := sourceQueue.ReceiveMessageWithParameters(
-			map[string]string{
-				"WaitTimeSeconds":     "20",
-				"MaxNumberOfMessages": "10",
-				"VisibilityTimeout":   "20"})
+		waitTimeSeconds := int64(20)
+		maxNumberOfMessages := int64(10)
+		visibilityTimeout := int64(20)
+
+		resp, err := conn.ReceiveMessage(&sqs.ReceiveMessageInput{
+			WaitTimeSeconds:     &waitTimeSeconds,
+			MaxNumberOfMessages: &maxNumberOfMessages,
+			VisibilityTimeout:   &visibilityTimeout,
+			QueueUrl:            sourceQueueURL.QueueUrl})
+
 		if err != nil {
 			log.Fatal(err)
 			return
@@ -68,13 +87,37 @@ func main() {
 
 		log.Printf("Moving %v message(s)...", numberOfMessages)
 
-		_, err = destinationQueue.SendMessageBatch(messages)
+		var sendMessageBatchRequestEntries []*sqs.SendMessageBatchRequestEntry
+		for index, element := range messages {
+			i := strconv.Itoa(index)
+
+			sendMessageBatchRequestEntries = append(sendMessageBatchRequestEntries, &sqs.SendMessageBatchRequestEntry{
+				Id:          &i,
+				MessageBody: element.Body})
+		}
+
+		_, err = conn.SendMessageBatch(&sqs.SendMessageBatchInput{
+			Entries:  sendMessageBatchRequestEntries,
+			QueueUrl: destinationQueueURL.QueueUrl})
+
 		if err != nil {
 			log.Fatal(err)
 			return
 		}
 
-		_, err = sourceQueue.DeleteMessageBatch(messages)
+		var deleteMessageBatchRequestEntries []*sqs.DeleteMessageBatchRequestEntry
+		for index, element := range messages {
+			i := strconv.Itoa(index)
+
+			deleteMessageBatchRequestEntries = append(deleteMessageBatchRequestEntries, &sqs.DeleteMessageBatchRequestEntry{
+				Id:            &i,
+				ReceiptHandle: element.ReceiptHandle})
+		}
+
+		_, err = conn.DeleteMessageBatch(&sqs.DeleteMessageBatchInput{
+			Entries:  deleteMessageBatchRequestEntries,
+			QueueUrl: sourceQueueURL.QueueUrl})
+
 		if err != nil {
 			log.Fatal(err)
 			return
